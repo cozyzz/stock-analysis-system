@@ -1,0 +1,18 @@
+# 数据缓存（486M ohlcv/universe，本地持有，不进 git）
+data/
+
+# 回测看板（35M，run.py 生成的产物，不进 git）
+回测看板.html
+
+# render 中间调试产物
+_tpl.js
+_logic.js
+_jsonpart.js
+
+# Python 缓存
+__pycache__/
+*.pyc
+*.pyo
+
+# 日志
+*.log
