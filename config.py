@@ -44,6 +44,15 @@ CHART_PAD_AFTER = 30                   # 信号日之后再画多少根（看后
 MAX_KLINE_SIGNALS = 200                # 内联 K 线数据上限（控文件体积）；其余表格可见但无抽屉
 CHART_DPR = 2                          # canvas devicePixelRatio
 
+# ---------- 信号抽屉分时（1min） ----------
+# 策略信号抽屉加"分时"tab，看信号当天的1分钟走势（同个股模块）。
+# 新浪 stock_zh_a_minute(period=1) 只回最近约8个交易日1min K，故仅最近信号可得，
+# 更早信号抽屉如实提示"分时不可得"。
+FETCH_STRATEGY_INTRADAY = True         # 总开关：False 跳过整段分时取数（秒级构建不变）
+INTRADAY_LOOKBACK_CAL_DAYS = 14        # 信号日 >= asof-此天数 才拉分时（覆盖 ~8 交易日）
+INTRADAY_WORKERS = 1                   # 分时并发：1=顺序（同个股模块，最稳）；调高有 sina SSL burst 风险
+INTRADAY_DISK_CACHE = True             # 分时磁盘缓存：data/intraday/{sym}.pkl，命中（含该信号日）则跳过 sina，同日重跑秒级
+
 # ---------- 涨停 ----------
 LIMIT_UP_RATIO = 0.10                  # 主板 / 中小板
 LIMIT_UP_RATIO_GROWTH = 0.20           # 创业板 300 / 科创板 688
@@ -64,13 +73,15 @@ ENABLED_MODULES = ["market", "strategy", "stock", "analysis"]   # market=默认�
 # 以后加新通达信公式：写 strategies/xxx.py（实现 NAME/DESC/select），在此注册即可
 STRATEGIES = {
     "reversal_low_absorb": "strategies.reversal_low_absorb",
-    "next_day_short": "strategies.next_day_short",
-    # 以下 4 条移植自 Big-A-chovy（a_share_daily_screen.py），纯日线可回测：
-    "trend_strict": "strategies.trend_strict",              # 严格趋势（顺势）
-    "trend_observation": "strategies.trend_observation",    # 趋势观察（回踩宽松）
-    "ultra_strict": "strategies.ultra_strict",              # 严格超短（小盘动能）
-    "low_trend": "strategies.low_trend",                    # 低吸趋势（低位低吸）
-    "next_day_short_pb": "strategies.next_day_short_pb",    # 隔日超短·回踩版（贴线买）
+    # 以下 6 个先不监控（收益惨，2026-09-26 暂停）：next_day_short / trend_strict / trend_observation
+    # / ultra_strict / low_trend / next_day_short_pb。策略文件保留，去掉注释即恢复。
+    # "next_day_short": "strategies.next_day_short",
+    # "trend_strict": "strategies.trend_strict",
+    # "trend_observation": "strategies.trend_observation",
+    # "ultra_strict": "strategies.ultra_strict",
+    # "low_trend": "strategies.low_trend",
+    # "next_day_short_pb": "strategies.next_day_short_pb",
+    "chanlun_bottom_fx": "strategies.chanlun_bottom_fx",    # 缠论底分型（底分型+10日涨停+市值50亿）
 }
 DEFAULT_STRATEGY = "reversal_low_absorb"
 

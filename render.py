@@ -114,7 +114,7 @@ def render(payload, output_path=None, template_path=None):
         html = tpl.replace("__DASH_DATA__", data_json)
     else:
         raise RuntimeError("模板未找到数据占位符 /*__DASH_DATA__*/null")
-    title = f"stock-analysis-system v{C.VERSION}"
+    title = "个人股票分析系统"
     html = html.replace("__DASH_TITLE__", title)
     # 自检
     if "__DASH_DATA__" in html:

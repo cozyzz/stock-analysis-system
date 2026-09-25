@@ -14,6 +14,7 @@
 import os
 import re
 import ssl
+import socket
 import json
 import gzip
 import random
@@ -218,13 +219,38 @@ def _code_to_symbol(code):
     return "sz" + c
 
 
-def _fetch_recent_bars(symbol, start_date_yyyymmdd):
+# 瞬时网络错误（新浪源并发/连续请求后会 SSL 重置/代理拒连）→ 退避重试；
+# 业务错误（如"股票数据不存在"）不在其列，直接抛。
+_TRANSIENT = ("SSLError", "ProxyError", "ChunkedEncodingError", "ConnectionError",
+              "ConnectionResetError", "ConnectionAbortedError", "RemoteDisconnected",
+              "ProtocolError", "TimeoutError", "ReadTimeoutError", "ConnectionClosed")
+
+
+def _fetch_recent_bars(symbol, start_date_yyyymmdd, max_retries=4):
     """拉一只票从 start_date 至今的 qfq 日线。volume 新浪源单位"股"→/100 转"手"。
 
+    加 max_retries 次退避重试（指数退避 + 抖动，避免并发重试再撞限流）；
+    仅重试瞬时网络错误，业务错误直接抛。
     返回 DataFrame（symbol,date,open,high,low,close,volume）或空 DataFrame（失败）。
     """
     import akshare as ak
-    df = ak.stock_zh_a_daily(symbol=symbol, adjust="qfq", start_date=start_date_yyyymmdd)
+    df = None
+    last_err = None
+    for attempt in range(max_retries):
+        try:
+            df = ak.stock_zh_a_daily(symbol=symbol, adjust="qfq", start_date=start_date_yyyymmdd)
+            break
+        except Exception as e:
+            last_err = e
+            ename = type(e).__name__
+            msg = str(e).lower()
+            if ename in _TRANSIENT or "timed out" in msg or "reset" in msg or "proxy" in msg:
+                time.sleep(0.8 * (attempt + 1) + random.random() * 0.6)
+                continue
+            raise  # 非瞬时（如"股票数据不存在"）直接抛，不重试
+    else:
+        # 全部重试均瞬时失败
+        raise last_err
     if df is None or len(df) == 0:
         return pd.DataFrame(columns=["symbol", "date", "open", "high", "low", "close", "volume"])
     df = df.rename(columns=str.lower)
@@ -239,6 +265,75 @@ def _fetch_recent_bars(symbol, start_date_yyyymmdd):
     return df
 
 
+_intraday_cache_stats = {"hit": 0, "miss": 0}
+
+
+def fetch_minute_raw(sym, need_date=None, timeout=40):
+    """拉 1 分钟分时原始多日 df（新浪 stock_zh_a_minute period=1 adjust=""）。
+
+    子进程隔离（modules/_ak_worker.py），与 modules/stock.py::_fetch_intraday 同模式
+    （akshare eastmoney 家族在主进程会触发 py_mini_racer V8 段错误，故子进程取数）。
+    返回最近约8个交易日的1min原始 df（含 day/close/volume/amount，未按日过滤），
+    或 None（失败/超时/空）。交调用方按"信号日"切当日约240根。
+
+    注：与 stock.py::_fetch_intraday 的区别在于不在本函数过滤 asof 当日——策略抽屉
+    要看的是"信号日"分时（信号日未必是 asof），故返回多日 df 由调用方自行切片。
+    """
+    cache_dir = os.path.join(C.DATA_DIR, "intraday")
+    cache_path = os.path.join(cache_dir, "{0}.pkl".format(sym))
+    use_cache = bool(getattr(C, "INTRADAY_DISK_CACHE", True)) and bool(need_date)
+    if use_cache:
+        try:
+            cdf = pd.read_pickle(cache_path)
+        except Exception:
+            cdf = None
+        hit = (cdf is not None and len(cdf) and "day" in cdf.columns
+               and need_date in set(cdf["day"].astype(str).str[:10]))
+        if hit:
+            _intraday_cache_stats["hit"] += 1
+            return cdf.copy()
+        _intraday_cache_stats["miss"] += 1
+    import subprocess, sys, tempfile
+    mod = os.path.join(os.path.dirname(os.path.abspath(__file__)), "modules")
+    worker = os.path.join(mod, "_ak_worker.py")
+    out = os.path.join(tempfile.gettempdir(), "sas_min_{0}.pkl".format(sym))
+    kw = json.dumps({"symbol": sym, "period": "1", "adjust": ""})
+    try:
+        os.remove(out)
+    except OSError:
+        pass
+    try:
+        r = subprocess.run([sys.executable, worker, out, "stock_zh_a_minute", kw],
+                           cwd=mod, timeout=timeout,
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    except Exception:
+        return None
+    if r.returncode != 0 or not os.path.exists(out):
+        return None
+    try:
+        df = pd.read_pickle(out)
+    except Exception:
+        return None
+    finally:
+        try:
+            os.remove(out)
+        except OSError:
+            pass
+    if df is None or not len(df) or "day" not in df.columns:
+        return None
+    df = df.copy()
+    df["day"] = df["day"].astype(str)
+    if use_cache and need_date in set(df["day"].str[:10]):
+        try:
+            os.makedirs(cache_dir, exist_ok=True)
+            tmp = cache_path + ".tmp"
+            df.to_pickle(tmp)
+            os.replace(tmp, cache_path)
+        except Exception:
+            pass
+    return df
+
+
 def refresh_incremental(verbose=True, force=False):
     """每天启动自动刷新：把落后于最新交易日的票补到最新。
 
@@ -250,6 +345,8 @@ def refresh_incremental(verbose=True, force=False):
       5. merge_cache + 原子落盘。
       返回 (n_refreshed, n_failed, new_max_date)。
     """
+    # akshare/requests 不暴露 per-request timeout，全局兜底防 hang（含代理场景）
+    socket.setdefaulttimeout(30)
     ohlcv = load_ohlcv(verbose=False)
     max_date = str(ohlcv["date"].max())
 
