@@ -110,6 +110,8 @@ stock-analysis-system/
 ├── 策略研究/              # 策略研究文档
 ├── refs/                  # 参考截图
 ├── data/                  # 数据缓存（gitignore，需 fetch/seed 生成）
+├── deploy/                # 服务器部署脚本（setup.sh/publish.sh/systemd/cron/runbook）
+├── requirements.txt       # Python 依赖（akshare/pandas/numpy）
 ├── _probe_nds_high.py     # 探针：次日盘中分布 + 挂单成交模拟
 ├── _probe_rla_l5.py       # 探针：反转低吸三口径12年净值
 ├── _probe_rla_min.py      # 探针：次日早盘冲高时点（新浪5分钟源）
@@ -145,6 +147,12 @@ A: 启动时自动增量补最新交易日，秒级。universe 超 7 天自动�
 A: `git push -u origin main`，首次弹 GitHub 登录窗（Git Credential Manager），浏览器授权后自动上传并缓存凭证。
 
 ---
+
+## 部署
+
+部署到 Linux 服务器（每日自动刷新 + 网页访问）见 [deploy/README.md](deploy/README.md)：
+`bash deploy/setup.sh` 引导 → 数据初始化 → systemd 起 `http.server:8080` 托管 + cron 每日 16:10 `deploy/publish.sh` 生成发布。
+无域名/未备案用 8080 高端口（国内云商对 80/443 无备案会拦，高端口不拦）。
 
 ## 声明
 

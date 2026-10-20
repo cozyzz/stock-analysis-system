@@ -1,0 +1,12 @@
+[Unit]
+Description=stock-analysis-system dashboard (static HTML, port 8080)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/opt/stock-venv/bin/python -m http.server 8080 --directory /var/www/stock --bind 0.0.0.0
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

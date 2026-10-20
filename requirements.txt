@@ -1,0 +1,5 @@
+# stock-analysis-system · Python 依赖
+# 安装：/opt/stock-venv/bin/pip install -r requirements.txt
+akshare
+pandas
+numpy

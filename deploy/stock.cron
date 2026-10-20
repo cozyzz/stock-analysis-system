@@ -1,0 +1,5 @@
+# stock-analysis-system · 每日 16:10 生成+发布看板（A 股 15:00 收盘后留缓冲）
+# 装载（保留已有 cron 项）：
+#   (crontab -l 2>/dev/null; cat /opt/stock-analysis-system/deploy/stock.cron | grep -v '^#') | crontab -
+# 时区须为 Asia/Shanghai（timedatectl set-timezone Asia/Shanghai）
+10 16 * * 1-5 bash /opt/stock-analysis-system/deploy/publish.sh
