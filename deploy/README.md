@@ -16,6 +16,10 @@
 ```bash
 which git || dnf install -y git
 git clone https://github.com/cozyzz/stock-analysis-system.git /opt/stock-analysis-system
+# 国内服务器访问 github 常被重置（同本机 errno 10054）。若 git clone 卡住/失败，改用压缩包上传：
+#   本机：git archive --format=tar.gz -o stock.tgz HEAD    # 只含代码，不含 data/ 与 回测看板.html
+#   FinalShell SFTP 上传 stock.tgz 到 /opt，再：
+#   mkdir -p /opt/stock-analysis-system && tar xzf /opt/stock.tgz -C /opt/stock-analysis-system
 cd /opt/stock-analysis-system
 bash deploy/setup.sh                                       # 装 python3/rsync/firewalld + venv + 依赖 + webroot
 # 数据初始化（二选一，见下）
@@ -27,6 +31,10 @@ systemctl daemon-reload && systemctl enable --now stock-dashboard   # 起静态�
 firewall-cmd --add-port=8080/tcp --permanent && firewall-cmd --reload        # 放行 8080
 ```
 访问 `http://<服务器IP>:8080/`。
+
+> ⚠ **腾讯云/阿里云安全组**也要放行 8080（控制台 → 安全组 → 入站规则加 TCP 8080）。`firewall-cmd` 只管 OS 层，云安全组是另一道闸——打不开先查这个。
+> 时区务必上海：`timedatectl set-timezone Asia/Shanghai`，否则 cron 16:10 不是 A 股收盘后。
+> 注：国内服务器访问 github 多半不通，`publish.sh` 里每日 `git pull` 会失败但被 `|| echo` 兜住、用现有代码照常渲染（数据刷新走 sina 不受影响）。要更新代码时重新上传 `stock.tgz` 覆盖即可。
 
 ## 数据初始化（二选一）
 
