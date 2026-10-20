@@ -105,14 +105,16 @@ stock-analysis-system/
 ├── render.py              # 渲染层（JSON→template.html→离线HTML）
 ├── run.py                 # 入口（run/seed/fetch 子命令）
 ├── template.html          # 看板模板
-├── modules/               # 4 大看板模块（market/strategy/stock/analysis）
+├── modules/               # 4 大看板模块（market/strategy/stock/analysis；active_mktcap 暂停）
 ├── strategies/            # 策略实现（7 个）
 ├── 策略研究/              # 策略研究文档
 ├── refs/                  # 参考截图
 ├── data/                  # 数据缓存（gitignore，需 fetch/seed 生成）
 ├── _probe_nds_high.py     # 探针：次日盘中分布 + 挂单成交模拟
 ├── _probe_rla_l5.py       # 探针：反转低吸三口径12年净值
-└── _probe_rla_min.py      # 探针：次日早盘冲高时点（新浪5分钟源）
+├── _probe_rla_min.py      # 探针：次日早盘冲高时点（新浪5分钟源）
+├── _probe_0amv.py         # 探针：0AmV活筹公式核验（沪深成交额10日和 vs SMA平均）
+└── _probe_active_mktcap.py # 探针：活跃市值波段统计（模块已暂停，旧总市值版）
 ```
 
 ---

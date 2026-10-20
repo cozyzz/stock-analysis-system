@@ -53,6 +53,13 @@ INTRADAY_LOOKBACK_CAL_DAYS = 14        # 信号日 >= asof-此天数 才拉分�
 INTRADAY_WORKERS = 1                   # 分时并发：1=顺序（同个股模块，最稳）；调高有 sina SSL burst 风险
 INTRADAY_DISK_CACHE = True             # 分时磁盘缓存：data/intraday/{sym}.pkl，命中（含该信号日）则跳过 sina，同日重跑秒级
 
+# ---------- 活跃市值模块 ----------
+# 全A总市值（legu 巴菲特指数 stock_buffett_index_lg）波段统计：2日涨>阈值触发，
+# 单日跌≤终结阈值结束，统计波段平均收益。数据走 akshare 子进程，不依赖本地 ohlcv。
+ACTIVE_MKTCAP_THRESHOLD = 0.04          # 2日累计涨幅 4%（触发）
+ACTIVE_MKTCAP_END_DROP = -0.02         # 单日跌幅 -2%（终结，完整波段）
+ACTIVE_MKTCAP_MA = 10                  # MA 均线周期（"平均活跃市值"）
+
 # ---------- 涨停 ----------
 LIMIT_UP_RATIO = 0.10                  # 主板 / 中小板
 LIMIT_UP_RATIO_GROWTH = 0.20           # 创业板 300 / 科创板 688
@@ -68,6 +75,9 @@ VERSION = "0.2.0"
 #   stock     个股：单只 K 线 + 指标 + 策略信号
 #   analysis  分析：综合分析
 ENABLED_MODULES = ["market", "strategy", "stock", "analysis"]   # market=默认首页
+# active_mktcp 暂停（2026-09-29）：0AmV 活筹指数依赖东财 stock_zh_index_daily_em 成交额源，
+#   被 IP 限流（RemoteDisconnected）无可靠 fallback（缓存无成交额列/腾讯 amount 是成交量/新浪无成交额）。
+#   模块代码保留 modules/active_mktcap.py，待东财恢复或用户提供 0AmV 日线 CSV 即去注释重启用。
 
 # ---------- 策略注册表 ----------
 # 以后加新通达信公式：写 strategies/xxx.py（实现 NAME/DESC/select），在此注册即可
