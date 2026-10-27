@@ -1,5 +1,8 @@
+# 备选方案：不装 nginx 时用 Python 自带 http.server 兜底（同样托管 8080，但无 gzip、单线程）。
+# 主方案用 nginx + gzip（见 deploy/stock.conf），加载更快。此文件仅作 fallback。
+# 装：cp deploy/stock-dashboard.service /etc/systemd/system/ && systemctl daemon-reload && systemctl enable --now stock-dashboard
 [Unit]
-Description=stock-analysis-system dashboard (static HTML, port 8080)
+Description=stock-analysis-system dashboard (static HTML, port 8080, fallback http.server)
 After=network.target
 
 [Service]
