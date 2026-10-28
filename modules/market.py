@@ -89,7 +89,7 @@ def build(ctx):
 
     interp = _interpret(thermo, sentiment, indices, degraded)
 
-    return {
+    result = {
         "asof": asof,
         "indices": indices,
         "thermometer": thermo,
@@ -104,6 +104,10 @@ def build(ctx):
         "degraded": degraded,
         "errors": errors,
     }
+    # 供 analysis 模块复用：同一次 akshare 拉取的结果，避免分析 tab 二次请求
+    # （东财系接口在服务器 IP 限流，二次拉很可能失败）。market(order=10) 先于 analysis(40) 构建。
+    ctx.shared["market"] = result
+    return result
 
 
 def _safe(name, fn, errors):
