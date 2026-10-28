@@ -16,7 +16,9 @@ echo "[$(date '+%F %T')] publish 开始"
 cd "$REPO"
 
 echo "[1/3] git pull（更新代码）"
-git pull -q || echo "  ⚠ git pull 失败，用现有代码继续（github 偶发不通不阻塞渲染）"
+# 国内服务器到 github 常被墙（TCP 卡死而非快速失败），必须 timeout 包一层：
+# 否则 cron 会像交互式 git pull 一样无限挂起，|| echo 接不到（只接非零退出，不接卡死）。
+timeout 30 git pull -q || echo "  ⚠ git pull 失败/超时，用现有代码继续（国内服务器→github 常不通，不阻塞渲染）"
 
 echo "[2/3] run.py 生成看板（增量刷新 sina + 渲染）"
 if "$VENV/bin/python" run.py; then
