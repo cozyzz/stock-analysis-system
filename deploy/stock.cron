@@ -1,8 +1,9 @@
-# stock-analysis-system · 每日 18:00 生成+发布看板（A 股 15:00 收盘后留 3 小时缓冲）
-# 为什么 18:00 而非 16:10：新浪日线接口 stock_zh_a_daily 收盘后才发布"当天"的 K 线
-# （实测 16:10 当天 bar 还没出），16:10 跑只能拿到昨天、看板永远少当天数据。18:00 给足时间。
-# 若 18:00 仍偶发拉不到当天，再改 0 19。
-# 装载（保留已有 cron 项）：
-#   (crontab -l 2>/dev/null; cat /opt/stock-analysis-system/deploy/stock.cron | grep -v '^#') | crontab -
-# 时区须为 Asia/Shanghai（timedatectl set-timezone Asia/Shanghai），否则 18:00 不是北京时间
-0 18 * * 1-5 bash /opt/stock-analysis-system/deploy/publish.sh
+# stock-analysis-system · 每日 19:00 生成+发布看板（A 股 15:00 收盘后留 4 小时缓冲）
+# 为什么 19:00 而非 18:00：新浪【个股】日线 stock_zh_a_daily 收盘后约 3 小时（18:00 前）发当天 bar；
+# 但【指数】日线 stock_zh_index_daily 实测 18:00 当天 bar 还没发（18:00 cron 系统性拿到昨天的指数，
+# 分析 tab 指数一直滞后一天），要到 18:00 之后才发。故 cron 推到 19:00，且 publish.sh 里加了
+# 「等今日指数 bar」轮询（最多等 60 分钟）兜底——即便 19:00 仍偏早，也会等到 bar 发布再渲染。
+# 时区须为 Asia/Shanghai（timedatectl set-timezone Asia/Shanghai），否则 19:00 不是北京时间。
+# 装载（先清掉旧的同名 cron 项再装，避免重复）：
+#   (crontab -l 2>/dev/null | grep -v 'stock-analysis-system/deploy/publish.sh'; cat /opt/stock-analysis-system/deploy/stock.cron | grep -v '^#') | crontab -
+0 19 * * 1-5 bash /opt/stock-analysis-system/deploy/publish.sh

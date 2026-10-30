@@ -76,7 +76,7 @@ ls -l /var/www/stock/index.html /var/log/stock-refresh.log
 
 ## cron 时序坑（看板少当天数据）
 
-cron 必须设 **18:00**，不能 16:10。原因：新浪日线接口 `stock_zh_a_daily` 收盘后才发布"今天"的 K 线（实测 16:10 当天 bar 还没出），16:10 跑只能拿到昨天，看板永远少当天数据。18:00 给新浪 3 小时缓冲，当天数据当晚上版。交易日历 `tool_trade_date_hist_sina()` 是全年含未来日期的，target 取"<=今天"=今天没问题——瓶颈是日线 bar 发布延迟。若 18:00 仍偶发拉不到当天，改 `0 19`。验证末根是不是今天：
+cron 现设 **19:00**（原 18:00）。两层原因：① 新浪【个股】日线 `stock_zh_a_daily` 收盘后才发当天 bar（实测 16:10 还没出），18:00 前已发——这层 18:00 够；② 新浪【指数】日线 `stock_zh_index_daily` 实测 **18:00 当天 bar 还没发**（18:00 cron 系统性拿到昨天的指数，分析 tab 指数一直滞后一天），要到 18:00 之后才发，故推到 19:00。且 `publish.sh` 里加了「等今日指数 bar」轮询（最多等 60 分钟，每 10 分钟探一次 `sh000001` 末根日期==今天）——即便 19:00 仍偏早，也会等到 bar 发布再渲染，不会出昨天的指数。交易日历 `tool_trade_date_hist_sina()` 是全年含未来日期的，target 取"<=今天"=今天没问题——瓶颈是日线 bar 发布延迟。若 19:00 + 轮询 60 分钟仍偶发拉不到当天，再改 `0 20`。验证末根是不是今天：
 ```bash
 /opt/stock-venv/bin/python -c "import akshare as ak; df=ak.stock_zh_a_daily(symbol='sh600418',adjust='qfq'); print(df.tail(3)[['date','close']].to_string(index=False))"
 ```
