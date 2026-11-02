@@ -355,6 +355,28 @@ def _signal_track(ctx, signals_full_by_strategy, strat_names, n_days, ohlcv_pool
         n_hits = sum(1 for x in realized if x["hit"])
         avg_pulse = (sum(x["pulse_ret"] for x in realized) / n_real) if n_real else None
         avg_hold = (sum(x["hold_ret"] for x in realized) / n_real) if n_real else None
+        # 前瞻收益衰减：T+1/T+3/T+5/T+10 收盘→收盘均值，近窗 vs 全历史。
+        # 看"反转那一波能撑几天"——随天数递减=不持久；T+10 趋平=alpha 淹没于市场噪声。
+        # T+1 与 KPI 同口径（realized.hold_ret / hist_rets），T+3 起按 ret{h}c 非 None 子集。
+        decay = []
+        for h in (1, 3, 5, 10):
+            if h == 1:
+                rv = [x["hold_ret"] for x in realized]
+                hv = hist_rets
+            else:
+                fld = "ret%dc" % h
+                rv = [float(r[fld]) for r in sigs_win
+                      if not r.get("pending") and r.get(fld) is not None
+                      and np.isfinite(float(r[fld]))]
+                hv = [float(r[fld]) for r in sigs
+                      if r.get(fld) is not None and np.isfinite(float(r[fld]))]
+            decay.append({
+                "h": h,
+                "recent": round(sum(rv) / len(rv), 4) if rv else None,
+                "hist": round(sum(hv) / len(hv), 4) if hv else None,
+                "n_recent": len(rv),
+                "n_hist": len(hv),
+            })
         by_strategy.append({
             "key": key, "name": strat_names.get(key, key),
             "n_recent": len(sigs_win), "n_realized": n_real, "n_pending": n_pending,
@@ -363,6 +385,7 @@ def _signal_track(ctx, signals_full_by_strategy, strat_names, n_days, ohlcv_pool
             "avg_pulse": round(avg_pulse, 4) if avg_pulse is not None else None,
             "avg_hold": round(avg_hold, 4) if avg_hold is not None else None,
             "hist_avg": round(hist_avg, 4) if hist_avg is not None else None,
+            "decay": decay,
         })
         # by_day（按信号日升序）：供前端画近窗脉冲累计净值曲线
         bd = {}
