@@ -127,6 +127,9 @@ stock-analysis-system/
 - **universe**：东财 `stock_zh_a_spot_em`（总市值/流通市值/换手率），超 7 天才重抓
 - **启动增量**：交易日历用 `ak.tool_trade_date_hist_sina()`，仅补 stale 票（last_date < 最新交易日）
 - **分时（5分钟）**：新浪 `stock_zh_a_minute`，仅回最近约 41 天；东财 `push2his` 分钟历史在部分网络环境被 IP 断连，不可用
+- **板块资金流**：同花顺 `stock_fund_flow_industry`（即时），净额=流入−流出，单位亿元，取前 8；东财资金流系接口被 IP 限流不可用
+- **个股大单资金**：同花顺 `stock_fund_flow_big_deal`（当日大单成交明细 5000 行）聚合，买盘成交额−卖盘成交额=大单净额（万元），取流入/流出 TOP10；口径=大单净额非主力净额
+- **今日涨幅榜**：本地 ohlcv `close[T]/close[T-1]-1`，TOP10，排除 ST（不联网）；雪球热度接口失效、东财人气榜被 IP 限流、百度热搜口径差，改用本地涨幅榜
 - **回测口径**：信号日 i 尾盘收盘价 c[i] 买入，ret = 次日收盘/开盘/最高 相对 c[i]。策略可声明 `SELL_BASIS`：`close`（默认次日收盘卖）/ `open_next`（次日开盘卖）/ `limit_5pct`（次日挂+5%限价，触及成交否则收盘卖，待接入）
 - **净值模型**：满仓均分当日信号、逐信号日复利、成本 0.3%/轮（`EQUITY_TX_COST`）。简化口径，非真实组合
 
