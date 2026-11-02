@@ -39,6 +39,7 @@ def build(ctx):
     strategies_data = {}
     signals_full_by_strategy = {}
     strategy_list = []
+    strat_names = {}      # key -> 策略显示名（信号追踪用）
 
     # 信号抽屉分时（1min）：跨策略按 sym 去重，每只只拉一次；仅最近~8交易日信号可得
     intraday_cache = {}                # sym -> raw 多日 df 或 None（None 也缓存避免重试）
@@ -58,6 +59,7 @@ def build(ctx):
             print(f"  · 策略 {name} 加载失败：{type(e).__name__}: {e}")
             continue
         print(f"  · 策略 {name}（{st.NAME}）...")
+        strat_names[name] = st.NAME
         res = engine.run(ohlcv_pool, st, ctx.name_map,
                          shares_map=shares_map, verbose=True)
         if cutoff:
@@ -108,6 +110,11 @@ def build(ctx):
     ctx.shared["signals_full"] = signals_full_by_strategy.get(active0, [])
     ctx.shared["strategy_name"] = active0
 
+    # 近期信号实盘追踪（脉冲5出口验证）：取最近 N 日信号，查 ohlcv 次日最高，
+    # 按次日+5%限价命中→+5%、否则次日收盘走 算真实结局，汇总命中率/均收益 vs 全历史。
+    signal_track = _signal_track(ctx, signals_full_by_strategy, strat_names,
+                                 C.SIGNAL_TRACK_DAYS, ohlcv_pool)
+
     active = active0 if active0 in strategies_data else (
         list(strategies_data.keys())[0] if strategies_data else active0)
 
@@ -131,6 +138,7 @@ def build(ctx):
         "errors": a.get("errors", 0),
         "horizons": C.FORWARD_HORIZONS,
         "headline": C.HEADLINE_HORIZON,
+        "signal_track": signal_track,
     }
 
 
@@ -266,3 +274,113 @@ def _r(arr):
         else:
             out.append(round(float(x), 3))
     return out
+
+
+# ============================================================================
+# 近期信号实盘追踪（脉冲5出口验证）· 嵌策略 tab
+# ============================================================================
+
+def _next_high_map(ohlcv_pool, cal, n_days):
+    """(sym, date) → 次日 high（float）。只覆盖最近 n_days+6 个交易日，够信号追踪窗口用。
+
+    信号日 d 的「次日」= d 在该 symbol 序列里的下一根 bar（T+1）。窗口内除最后一日外都有次日。
+    """
+    need = set(cal[-(n_days + 6):])
+    sub = ohlcv_pool[ohlcv_pool["date"].isin(need)]
+    nxt = {}
+    for sym, g in sub.groupby("symbol", sort=False):
+        g = g.sort_values("date").reset_index(drop=True)
+        d = g["date"].astype(str).tolist()
+        h = g["high"].astype(float).to_numpy()
+        for i in range(len(g) - 1):
+            nxt[(sym, str(d[i])[:10])] = float(h[i + 1])
+    return nxt
+
+
+def _signal_track(ctx, signals_full_by_strategy, strat_names, n_days, ohlcv_pool):
+    """近期信号实盘追踪（脉冲5出口验证）。
+
+    取最近 n_days 个交易日的信号（不重跑选股——用 engine 已算好的 signals_full），查 ohlcv
+    次日最高，按用户实际出口算真实结局：
+      次日9:25挂+5%限价 → 次日最高≥+5% 视为成交，收益=+5%（毛）；
+      10点没成交撤单收盘走 → 否则按次日收盘卖，收益=ret1c（信号日收盘→次日收盘）。
+    净收益=毛收益-交易成本（与净值曲线同口径 EQUITY_TX_COST）。pending（无次日，如最新交易日
+    信号）不计入已实现。汇总近窗命中率/脉冲均收益/持有均收益 vs 全历史 T+1 均值，看实盘窗口
+    里策略 edge 是否还在。纯本地 ohlcv，不碰东财，服务器可跑。
+    """
+    cal = ctx.calendar
+    if not cal or len(cal) < n_days + 2 or not signals_full_by_strategy:
+        return {}
+    cutoff = str(cal[-n_days])[:10]
+    nxt = _next_high_map(ohlcv_pool, cal, n_days)
+    target = C.PULSE5_TARGET
+    cost = C.EQUITY_TX_COST
+
+    by_strategy = []
+    by_day = {}
+    recent = {}
+    for key, sigs in signals_full_by_strategy.items():
+        sigs_win = [r for r in sigs if str(r["date"])[:10] >= cutoff]
+        # 全历史 T+1 均值（收盘→收盘，已实现）作对比基准
+        hist_rets = [float(r["ret1c"]) for r in sigs if r.get("ret1c") is not None]
+        hist_avg = (sum(hist_rets) / len(hist_rets)) if hist_rets else None
+
+        realized = []
+        n_pending = 0
+        for r in sigs_win:
+            if r.get("pending") or r.get("ret1c") is None:
+                n_pending += 1
+                continue
+            nh = nxt.get((r["symbol"], str(r["date"])[:10]))
+            if nh is None or not np.isfinite(float(nh)):
+                n_pending += 1
+                continue
+            close = float(r["close"])
+            nh = float(nh)
+            hit = nh >= close * (1 + target)
+            pulse_gross = target if hit else float(r["ret1c"])
+            pulse_net = pulse_gross - cost
+            realized.append({
+                "symbol": r["symbol"],
+                "name": r.get("name", r["symbol"]),
+                "date": str(r["date"])[:10],
+                "close": round(close, 2),
+                "next_high": round(nh, 2),
+                "next_high_pct": round(nh / close - 1, 4),
+                "hit": bool(hit),
+                "pulse_ret": round(pulse_net, 4),
+                "hold_ret": round(float(r["ret1c"]), 4),
+            })
+        n_real = len(realized)
+        n_hits = sum(1 for x in realized if x["hit"])
+        avg_pulse = (sum(x["pulse_ret"] for x in realized) / n_real) if n_real else None
+        avg_hold = (sum(x["hold_ret"] for x in realized) / n_real) if n_real else None
+        by_strategy.append({
+            "key": key, "name": strat_names.get(key, key),
+            "n_recent": len(sigs_win), "n_realized": n_real, "n_pending": n_pending,
+            "n_hits": n_hits,
+            "hit_rate": round(n_hits / n_real, 3) if n_real else None,
+            "avg_pulse": round(avg_pulse, 4) if avg_pulse is not None else None,
+            "avg_hold": round(avg_hold, 4) if avg_hold is not None else None,
+            "hist_avg": round(hist_avg, 4) if hist_avg is not None else None,
+        })
+        # by_day（按信号日升序）：供前端画近窗脉冲累计净值曲线
+        bd = {}
+        for x in realized:
+            v = bd.setdefault(x["date"], {"date": x["date"], "n": 0, "hits": 0, "sp": 0.0})
+            v["n"] += 1
+            v["hits"] += 1 if x["hit"] else 0
+            v["sp"] += x["pulse_ret"]
+        by_day[key] = [{"date": v["date"], "n": v["n"], "hits": v["hits"],
+                        "avg_pulse": round(v["sp"] / v["n"], 4)}
+                       for v in sorted(bd.values(), key=lambda x: x["date"])]
+        recent[key] = sorted(realized, key=lambda x: (x["date"], x["symbol"]), reverse=True)[:40]
+
+    return {
+        "n_days": n_days,
+        "target_pct": round(target * 100, 1),
+        "tx_cost_pct": round(cost * 100, 2),
+        "by_strategy": by_strategy,
+        "by_day": by_day,
+        "recent": recent,
+    }

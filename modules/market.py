@@ -8,10 +8,13 @@
   - 板块/个股资金流 stock_sector/individual_fund_flow_rank → flaky，失败占位
 每个子项独立 try/except，失败不阻塞其他，不网络回填。
 """
+import math
 import time
 
 import numpy as np
 import pandas as pd
+
+import config as C
 
 KEY = "market"
 NAME = "全景大盘"
@@ -87,6 +90,9 @@ def build(ctx):
     # 热度排行 TOP10：雪球关注度 + 百度热搜（东财被封，改用稳定源）
     hot_follow, hot_search = _fetch_hot(ak, errors)
 
+    # 市场宽度·温度折线（最近 N 日，纯本地 ohlcv 重算，不碰东财）——供前端画折线
+    breadth = _breadth_series(ctx, C.BREADTH_DAYS)
+
     interp = _interpret(thermo, sentiment, indices, degraded)
 
     result = {
@@ -103,6 +109,7 @@ def build(ctx):
         "interp": interp,
         "degraded": degraded,
         "errors": errors,
+        "breadth": breadth,
     }
     # 供 analysis 模块复用：同一次 akshare 拉取的结果，避免分析 tab 二次请求
     # （东财系接口在服务器 IP 限流，二次拉很可能失败）。market(order=10) 先于 analysis(40) 构建。
@@ -233,6 +240,109 @@ def _from_ohlcv(ctx):
         "seal_rate": round(sealed / max(open_zt, 1), 3),
     }
     return thermo, distrib, sentiment, latest
+
+
+# ---------- 市场宽度·温度折线（最近 N 日，纯本地 ohlcv） ----------
+def _breadth_series(ctx, n_days):
+    """最近 n_days 个交易日的市场宽度/温度折线（纯本地 ohlcv 重算，不碰东财）。
+
+    复用 _from_ohlcv 的涨跌/涨跌停口径（板别 ratio、ST 4.9 覆盖），逐日算：
+    涨/跌/平家数、涨停/跌停、涨跌比、MA20 多头占比、温度分（与 analysis._thermo_score 同公式）。
+    全向量化（pivot 宽表 + 列向聚合），秒级。返回前端折线数据；不足返回 {}。
+    """
+    cal = ctx.calendar
+    df = ctx.ohlcv
+    lookback = n_days + C.BREADTH_MA + 5
+    if not cal or len(cal) < lookback or df is None:
+        return {}
+    need = cal[-lookback:]
+    sub = df[df["date"].isin(need)]
+    if not len(sub):
+        return {}
+
+    # 透视宽表：行=symbol，列=date（按日历序）
+    piv = sub.pivot_table(index="symbol", columns="date", values="close", aggfunc="last")
+    piv = piv[sorted(piv.columns)]
+    opiv = sub.pivot_table(index="symbol", columns="date", values="open", aggfunc="last")
+    opiv = opiv[piv.columns].reindex(piv.index)
+    syms = piv.index.astype(str)
+    code3 = syms.str[2:5]
+    ratio_s = pd.Series(
+        np.where(code3.isin(["920", "830", "870", "872", "871", "873"]), 0.30,
+                 np.where(code3.isin(["300", "301", "688", "689"]), 0.20, 0.10)),
+        index=piv.index)
+    names = syms.map(ctx.name_map).fillna("").astype(str)
+    st = names.str.upper().str.contains("ST")
+
+    prev = piv.shift(1, axis=1)
+    chg = (piv / prev - 1) * 100
+
+    # 涨跌停：chg 减每只阈值（按板别）后比较；ST 覆盖 4.9%
+    zt = chg.sub(ratio_s * 100 - 0.15, axis=0) >= 0
+    dt = chg.sub(-ratio_s * 100 + 0.15, axis=0) <= 0
+    if st.any():
+        zt.loc[st] = chg.loc[st] >= 4.9
+        dt.loc[st] = chg.loc[st] <= -4.9
+    # 开板/封板（情绪·封板率）：open >= 昨收*(1+ratio)-0.01
+    zt_price = prev.mul(1 + ratio_s, axis=0) - 0.01
+    open_zt = opiv >= zt_price
+    sealed = open_zt & zt
+
+    # MA20 多头占比（piv.T 后按 date 轴 rolling，再转回；避免 axis=1 弃用警告）
+    ma20 = piv.T.rolling(C.BREADTH_MA).mean().T
+    ma20_valid = ma20.notna().sum(axis=0).astype(int)
+    ma20_bull = (piv > ma20).sum(axis=0).astype(int)   # ma20 NaN 处 piv>NaN=False，不计入
+
+    # 逐日聚合（列向求和，NaN 不计入）
+    up = (chg > 0).sum(axis=0).astype(int)
+    down = (chg < 0).sum(axis=0).astype(int)
+    zt_n = zt.sum(axis=0).astype(int)
+    dt_n = dt.sum(axis=0).astype(int)
+    open_zt_n = open_zt.sum(axis=0).astype(int)
+    sealed_n = sealed.sum(axis=0).astype(int)
+
+    dates = list(piv.columns)
+    # 前 BREADTH_MA-1 列无 MA20、第一列无 chg → 只取末尾 n_days 列（均有有效值）
+    s = slice(len(dates) - n_days, None)
+    dates_n = dates[s]
+    up_a = up.to_numpy()[s]
+    dn_a = down.to_numpy()[s]
+    zt_a = zt_n.to_numpy()[s]
+    dt_a = dt_n.to_numpy()[s]
+    ratio_a = up_a / np.clip(dn_a, 1, None)
+    seal_a = sealed_n.to_numpy()[s] / np.clip(open_zt_n.to_numpy()[s], 1, None)
+    bull_a = ma20_bull.to_numpy()[s]
+    valid_a = ma20_valid.to_numpy()[s]
+    bull_pct_a = bull_a / np.clip(valid_a, 1, None) * 100
+    # 温度分（与 analysis._thermo_score 同公式）
+    thermo_a = (50 + 30 * np.tanh((ratio_a - 1) / 1.5)
+                + np.minimum(zt_a, 80) * 0.12 - np.minimum(dt_a, 80) * 0.12
+                + seal_a * 8)
+    thermo_a = np.clip(thermo_a, 0, 100)
+
+    def _lst(a):
+        return [int(x) if float(x).is_integer() else round(float(x), 2) for x in a]
+
+    return {
+        "n": n_days,
+        "ma": C.BREADTH_MA,
+        "dates": [str(d) for d in dates_n],
+        "up": _lst(up_a),
+        "down": _lst(dn_a),
+        "zt": _lst(zt_a),
+        "dt": _lst(dt_a),
+        "ratio": [round(float(x), 2) for x in ratio_a],
+        "seal_rate": [round(float(x), 3) for x in seal_a],
+        "ma20_bull_pct": [round(float(x), 1) for x in bull_pct_a],
+        "thermo": [round(float(x), 0) for x in thermo_a],
+        "latest": {
+            "up": int(up_a[-1]), "down": int(dn_a[-1]),
+            "zt": int(zt_a[-1]), "dt": int(dt_a[-1]),
+            "ratio": round(float(ratio_a[-1]), 2),
+            "ma20_bull_pct": round(float(bull_pct_a[-1]), 1),
+            "thermo": round(float(thermo_a[-1]), 0),
+        },
+    }
 
 
 # ---------- spot（akshare）路径 ----------

@@ -53,6 +53,19 @@ INTRADAY_LOOKBACK_CAL_DAYS = 14        # 信号日 >= asof-此天数 才拉分�
 INTRADAY_WORKERS = 1                   # 分时并发：1=顺序（同个股模块，最稳）；调高有 sina SSL burst 风险
 INTRADAY_DISK_CACHE = True             # 分时磁盘缓存：data/intraday/{sym}.pkl，命中（含该信号日）则跳过 sina，同日重跑秒级
 
+# ---------- 市场宽度·温度折线（嵌全景大盘 tab） ----------
+# 从本地 ohlcv 重算最近 N 个交易日的每日涨跌家数/涨停跌停/涨跌比/MA20多头占比/温度分，
+# 画折线。纯本地计算（复用 market._from_ohlcv 口径），不碰东财，服务器可跑。
+BREADTH_DAYS = 60                          # 折线天数（最近 N 个交易日）
+BREADTH_MA = 20                            # 多头占比口径的均线周期
+
+# ---------- 信号追踪/实盘复盘（嵌策略 tab） ----------
+# 取最近 N 个交易日的策略信号，用 ohlcv 查每个信号次日最高/收盘，按「脉冲5」出口算真实
+# 结局（次日最高≥+5%→限价成交+5%；否则次日收盘走），汇总近窗命中率/均收益 vs 全历史均值。
+# 不重跑选股——直接用 strategy 引擎已算好的 signals_full（ctx.shared）。
+SIGNAL_TRACK_DAYS = 60                     # 信号追踪窗口（最近 N 个交易日）
+PULSE5_TARGET = 0.05                       # 脉冲5限价目标（+5%）
+
 # ---------- 活跃市值模块 ----------
 # 全A总市值（legu 巴菲特指数 stock_buffett_index_lg）波段统计：2日涨>阈值触发，
 # 单日跌≤终结阈值结束，统计波段平均收益。数据走 akshare 子进程，不依赖本地 ohlcv。
