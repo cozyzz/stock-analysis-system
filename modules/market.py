@@ -75,21 +75,13 @@ def build(ctx):
 
     # 板块资金流（同花顺 stock_fund_flow_industry 优先，带"净额(亿)"列；东财 fallback）
     fund_sector = _fetch_fund_sector(ak, errors)
-    # 个股资金流（东财，V8 反爬；默认跳过，SAS_USE_FUND=1 时子进程隔离拉取）
-    fund_in = None
-    fund_out = None
-    if os.environ.get("SAS_USE_FUND", "0") == "1":
-        fi_ok, fi, _ = _safe("个股资金流",
-                             lambda: _ak_subproc("stock_individual_fund_flow_rank",
-                                                  {"indicator": "今日"}, tries=2,
-                                                  timeout=60, tag="findiv"),
-                             errors)
-        if fi_ok and fi is not None:
-            fund_in = _parse_fund_individual(fi, 10, "in")
-            fund_out = _parse_fund_individual(fi, 10, "out")
+    # 个股大单资金 TOP10（同花顺大单明细聚合；东财主力接口被 IP 限流改用此口径，
+    # 不稳则 fund_in/fund_out=None 占位，后续可直接移除卡片或接 Tushare）
+    fund_in, fund_out = _fetch_fund_big_deal(ak, errors)
 
-    # 热度排行 TOP10：雪球关注度 + 百度热搜（东财被封，改用稳定源）
-    hot_follow, hot_search = _fetch_hot(ak, errors)
+    # 今日涨幅榜 TOP10（本地 ohlcv，不联网，反映当日热点龙头；
+    # 雪球/东财人气榜失效或被限、百度热搜口径差，改用本地涨幅榜）
+    top_gainers = _top_gainers_from_ohlcv(ctx, 10)
 
     # 市场宽度·温度折线（最近 N 日，纯本地 ohlcv 重算，不碰东财）——供前端画折线
     breadth = _breadth_series(ctx, C.BREADTH_DAYS)
@@ -105,8 +97,7 @@ def build(ctx):
         "fund_sector": fund_sector,
         "fund_in": fund_in,
         "fund_out": fund_out,
-        "hot_follow": hot_follow,
-        "hot_search": hot_search,
+        "top_gainers": top_gainers,
         "interp": interp,
         "degraded": degraded,
         "errors": errors,
@@ -241,6 +232,34 @@ def _from_ohlcv(ctx):
         "seal_rate": round(sealed / max(open_zt, 1), 3),
     }
     return thermo, distrib, sentiment, latest
+
+
+def _top_gainers_from_ohlcv(ctx, n=10):
+    """当日涨幅 TOP10（本地 ohlcv，不联网，反映当日热点龙头）。
+    复用 _from_ohlcv 口径：close[T]/close[T-1]-1。含新股/ST（如实反映当日涨幅最大）。"""
+    cal = ctx.calendar
+    if not cal or len(cal) < 2 or ctx.ohlcv is None:
+        return None
+    latest, prev = cal[-1], cal[-2]
+    df = ctx.ohlcv
+    cur = df[df["date"] == latest][["symbol", "close"]].copy()
+    pre = df[df["date"] == prev][["symbol", "close"]].rename(columns={"close": "prev"})
+    m = cur.merge(pre, on="symbol", how="left").dropna(subset=["prev", "close"])
+    if not len(m):
+        return None
+    m["close"] = m["close"].astype(float)
+    m["prev"] = m["prev"].astype(float)
+    m["chg"] = (m["close"] / m["prev"] - 1) * 100
+    m["name"] = m["symbol"].map(ctx.name_map).fillna("").astype(str)
+    # 排除 ST（涨幅榜惯例：ST 股异常不代表板块热点）；新股无 prev 已被 dropna 过滤
+    m = m[~m["name"].str.upper().str.contains("ST")]
+    top = m.sort_values("chg", ascending=False).head(n)
+    return [{
+        "code": str(r["symbol"]).replace("sh", "").replace("sz", "").replace("bj", ""),
+        "name": str(r["name"]),
+        "price": round(float(r["close"]), 2),
+        "chg_pct": round(float(r["chg"]), 2),
+    } for _, r in top.iterrows()]
 
 
 # ---------- 市场宽度·温度折线（最近 N 日，纯本地 ohlcv） ----------
@@ -516,6 +535,47 @@ def _parse_fund_individual(df, n, direction):
         return None
 
 
+def _fetch_fund_big_deal(ak, errors):
+    """个股大单资金 TOP10（流入/流出）：同花顺大单明细 stock_fund_flow_big_deal 聚合。
+
+    东财 stock_individual_fund_flow_rank 被 IP 限流（RemoteDisconnected）拿不到，同花顺无
+    全市场个股资金流排名口径；big_deal 返回 5000 行当日大单成交明细（买盘/卖盘成交额·万元），
+    按股票聚合得大单净额，取 TOP10。口径=大单净额非主力净额（主力=超大单+大单）。
+    走子进程（同板块资金流），timeout=45s（5000 行约 7-8s）。不稳返回 None 占位。"""
+    ok, df, _ = _safe("个股大单资金(同花顺)",
+                     lambda: _ak_subproc("stock_fund_flow_big_deal", {}, tries=2,
+                                          timeout=45, tag="bigdeal"), errors)
+    if not ok or df is None or not len(df):
+        return None, None
+    return _parse_fund_big_deal(df, 10)
+
+
+def _parse_fund_big_deal(df, n):
+    """同花顺大单明细聚合：买盘成交额 - 卖盘成交额（万元）= 大单净额，取流入/流出 TOP n。"""
+    try:
+        import pandas as pd
+        code_col = "股票代码" if "股票代码" in df.columns else df.columns[1]
+        name_col = "股票简称" if "股票简称" in df.columns else df.columns[2]
+        nat_col = "大单性质" if "大单性质" in df.columns else df.columns[6]
+        amt_col = "成交额" if "成交额" in df.columns else df.columns[5]
+        d = df.copy()
+        d[code_col] = d[code_col].astype(str).str.zfill(6)
+        d[amt_col] = pd.to_numeric(d[amt_col], errors="coerce")
+        d = d.dropna(subset=[amt_col])
+        g = d.groupby([code_col, name_col, nat_col])[amt_col].sum().unstack(nat_col).fillna(0)
+        for need in ("买盘", "卖盘"):
+            if need not in g.columns:
+                g[need] = 0
+        g["_net"] = g["买盘"] - g["卖盘"]
+        fund_in = [{"code": c[0], "name": c[1], "main": float(v)}
+                   for c, v in g.sort_values("_net", ascending=False).head(n)["_net"].items()]
+        fund_out = [{"code": c[0], "name": c[1], "main": float(v)}
+                    for c, v in g.sort_values("_net").head(n)["_net"].items()]
+        return fund_in, fund_out
+    except Exception:
+        return None, None
+
+
 def _num(r, key):
     v = r.get(key)
     try:
@@ -613,35 +673,29 @@ def _with_timeout(fn, timeout=15):
 
 
 def _fetch_hot(ak, errors):
-    """热度 TOP10：雪球关注度 + 百度热搜。走子进程（主进程 ohlcv 占地址空间，
-    V8 在主进程初始化会段错误）；子进程自带超时，不用 _with_timeout。"""
-    hot_follow = None
-    ok, df, _ = _safe("雪球关注度",
-                      lambda: _ak_subproc("stock_hot_follow_xq", {}, tries=2,
-                                           timeout=25, tag="hotfol"), errors)
-    if ok and df is not None and len(df):
-        hot_follow = _parse_hot_follow(df, 10)
+    """热度 TOP10：仅百度热搜。雪球关注/热议接口已失效、东财人气榜被 IP 限流（同资金流源），
+    均无稳定口径，hot_follow 卡片已移除；只保留稳定的百度热搜。"""
     hot_search = None
-    ok2, df2, _ = _safe("百度热搜",
-                        lambda: _ak_subproc("stock_hot_search_baidu", {"symbol": "A股"},
-                                             tries=2, timeout=20, tag="hotsea"), errors)
-    if ok2 and df2 is not None and len(df2):
-        hot_search = _parse_hot_baidu(df2, 10)
-    return hot_follow, hot_search
+    ok, df, _ = _safe("百度热搜",
+                      lambda: _ak_subproc("stock_hot_search_baidu", {"symbol": "A股"},
+                                           tries=2, timeout=20, tag="hotsea"), errors)
+    if ok and df is not None and len(df):
+        hot_search = _parse_hot_baidu(df, 10)
+    return None, hot_search
 
 
 def _parse_hot_follow(df, n):
-    """雪球关注度：股票代码/股票简称/关注/最新价。"""
+    """东财人气榜：当前排名/代码/股票名称/最新价/涨跌幅（雪球接口失效后改用此口径）。"""
     if df is None or not len(df):
         return None
     rows = []
     for i, (_, r) in enumerate(df.head(n).iterrows()):
         rows.append({
             "rank": i + 1,
-            "code": str(r.get("股票代码", "")),
-            "name": str(r.get("股票简称", "")),
+            "code": str(r.get("代码", "")),
+            "name": str(r.get("股票名称", "")),
             "price": _num(r, "最新价"),
-            "follow": _num(r, "关注"),
+            "chg_pct": _pct(r.get("涨跌幅")),
         })
     return rows
 
