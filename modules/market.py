@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 
 import config as C
+import datasource as ds
 
 KEY = "market"
 NAME = "全景大盘"
@@ -293,6 +294,21 @@ def _breadth_series(ctx, n_days):
     ma20_valid = ma20.notna().sum(axis=0).astype(int)
     ma20_bull = (piv > ma20).sum(axis=0).astype(int)   # ma20 NaN 处 piv>NaN=False，不计入
 
+    # 创 INDEX_NEW_HIGH_DAYS 日新高家数（沪深300 / 中证2000 拆分，成分股本地缓存不联网）
+    # close[T] >= max(close[T-19..T-1])（含并列=收盘创近20日新高）；prior_max 前19列 NaN 不计
+    cons = ds.load_index_cons()
+    nh = {}
+    if cons:
+        prior_max = piv.shift(1, axis=1).T.rolling(
+            C.INDEX_NEW_HIGH_DAYS - 1, min_periods=C.INDEX_NEW_HIGH_DAYS - 1).max().T
+        nh_mask = (piv >= prior_max) & prior_max.notna()
+        for key, cset in cons.items():
+            idx_syms = [s for s in piv.index if str(s) in cset]
+            if not idx_syms:
+                continue
+            nh[key] = {"count": nh_mask.loc[idx_syms].sum(axis=0).astype(int),
+                       "size": len(idx_syms)}
+
     # 逐日聚合（列向求和，NaN 不计入）
     up = (chg > 0).sum(axis=0).astype(int)
     down = (chg < 0).sum(axis=0).astype(int)
@@ -323,6 +339,17 @@ def _breadth_series(ctx, n_days):
     def _lst(a):
         return [int(x) if float(x).is_integer() else round(float(x), 2) for x in a]
 
+    # 新高家数切片到末尾 n_days（与上面同 s 切片）
+    nh_out = {}
+    for key, v in nh.items():
+        cnt_a = v["count"].to_numpy()[s]
+        size = v["size"]
+        nh_out[key] = {
+            "count": _lst(cnt_a),
+            "pct": [round(float(x) / size * 100, 1) for x in cnt_a],
+            "size": size,
+        }
+
     return {
         "n": n_days,
         "ma": C.BREADTH_MA,
@@ -335,6 +362,7 @@ def _breadth_series(ctx, n_days):
         "seal_rate": [round(float(x), 3) for x in seal_a],
         "ma20_bull_pct": [round(float(x), 1) for x in bull_pct_a],
         "thermo": [round(float(x), 0) for x in thermo_a],
+        "new_high": nh_out,
         "latest": {
             "up": int(up_a[-1]), "down": int(dn_a[-1]),
             "zt": int(zt_a[-1]), "dt": int(dt_a[-1]),

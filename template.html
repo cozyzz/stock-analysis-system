@@ -116,13 +116,15 @@ function breadthCard(sec){
   var b=sec.breadth;
   if(!b||!b.dates||!b.dates.length){return '<div class="panel"><h3>市场宽度·温度折线</h3><div class="placeholder">宽度数据不足（ohlcv 缓存不够 N+MA 日）</div></div>'}
   var l=b.latest||{};
+  var zt=l.zt||0,me=zt>=80?"强":(zt>=60?"中":"弱");
   var k='<div class="kpis">'+
     kpi("涨家数",l.up||0,"跌 "+(l.down||0))+
     kpi("涨跌比",(l.ratio||0)+":1","")+
     kpi("涨停",l.zt||0,"跌停 "+(l.dt||0))+
     kpi("MA20多头占比",num(l.ma20_bull_pct,1)+"%","近 "+b.n+" 日")+
-    kpi("温度分",Math.round(l.thermo||0)+"/100","本系统测算")+'</div>';
-  var sel='<div style="margin-bottom:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="color:var(--muted);font-size:12px">指标</span><select id="brdMetric" class="hsel"><option value="ud">涨跌家数</option><option value="zt">涨停跌停</option><option value="thermo">温度分(0-100)</option><option value="bull">MA20多头占比(%)</option></select><span id="brdNote" style="color:var(--muted);font-size:11px"></span></div>';
+    kpi("温度分",Math.round(l.thermo||0)+"/100","本系统测算")+
+    kpi("赚钱效应",me,"涨停"+zt+"家·牛市≥80/震荡≥60")+'</div>';
+  var sel='<div style="margin-bottom:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="color:var(--muted);font-size:12px">指标</span><select id="brdMetric" class="hsel"><option value="ud">涨跌家数</option><option value="zt">涨停跌停</option><option value="thermo">温度分(0-100)</option><option value="bull">MA20多头占比(%)</option><option value="nh">创20日新高占比(%)</option></select><span id="brdNote" style="color:var(--muted);font-size:11px"></span></div>';
   return '<div class="panel" style="margin-top:14px"><h3>市场宽度·温度折线（近 '+b.n+' 日 · 纯本地 ohlcv 重算，不碰东财）</h3>'+k+sel+'<canvas id="cvBreadth" height="260"></canvas><div class="note">涨跌家数=全市场 close 较昨收涨/跌的股票数；涨停跌停按板别 10/20/30%、ST 4.9%；MA20多头占比=close&gt;MA20 的股票占比；温度分=本系统测算（涨跌比+涨停跌停+封板率）。hover 看每日明细。非投资建议。</div></div>';
 }
 function drawBreadth(){
@@ -130,8 +132,8 @@ function drawBreadth(){
   var sec=secOf("market");if(!sec||!sec.breadth||!sec.breadth.dates){return}
   var b=sec.breadth,d=b.dates,n=d.length;
   var sel=$("brdMetric");var m=sel?sel.value:"ud";if(sel)sel.onchange=function(){drawBreadth()};
-  var series=[];if(m=="ud"){series=[{k:"up",col:css("--up"),lbl:"涨家数"},{k:"down",col:css("--down"),lbl:"跌家数"}]}else if(m=="zt"){series=[{k:"zt",col:css("--up"),lbl:"涨停"},{k:"dt",col:css("--down"),lbl:"跌停"}]}else if(m=="thermo"){series=[{k:"thermo",col:css("--gold"),lbl:"温度分"}]}else{series=[{k:"ma20_bull_pct",col:css("--info"),lbl:"MA20多头占比%"}]}
-  var allv=[];for(var s=0;s<series.length;s++){var arr=b[series[s].k];for(var i=0;i<n;i++){if(arr[i]!=null)allv.push(arr[i])}}
+  var series=[];if(m=="ud"){series=[{k:"up",col:css("--up"),lbl:"涨家数"},{k:"down",col:css("--down"),lbl:"跌家数"}]}else if(m=="zt"){series=[{k:"zt",col:css("--up"),lbl:"涨停"},{k:"dt",col:css("--down"),lbl:"跌停"}]}else if(m=="thermo"){series=[{k:"thermo",col:css("--gold"),lbl:"温度分"}]}else if(m=="nh"){var nh=b.new_high||{};if(nh.hs300)series.push({k:"hs300",col:css("--info"),lbl:"沪深300"});if(nh.zz2000)series.push({k:"zz2000",col:css("--gold"),lbl:"中证2000"})}else{series=[{k:"ma20_bull_pct",col:css("--info"),lbl:"MA20多头占比%"}]}
+  function arrOf(s){if(m=="nh"){var nh=b.new_high||{};return (nh[series[s].k]&&nh[series[s].k].pct)||[]}return b[series[s].k]}var allv=[];for(var s=0;s<series.length;s++){var arr=arrOf(s);for(var i=0;i<n;i++){if(arr[i]!=null)allv.push(arr[i])}}
   if(!allv.length){empty(cv,"市场宽度","无数据");return}
   var o=setup(cv,260);var ctx=o.ctx,w=o.w,h=o.h,pad=40;
   var mn=Math.min.apply(null,allv),mx=Math.max.apply(null,allv),rg=mx-mn||1;mn-=rg*0.08;mx+=rg*0.08;
@@ -139,11 +141,12 @@ function drawBreadth(){
   ctx.strokeStyle=css("--line");ctx.fillStyle=css("--muted");ctx.font="10px sans-serif";ctx.textAlign="left";
   for(var k=0;k<=4;k++){var yy=pad+(h-2*pad)*k/4;ctx.beginPath();ctx.moveTo(pad,yy);ctx.lineTo(w-pad,yy);ctx.stroke();ctx.fillText((mx-(mx-mn)*k/4).toFixed(0),2,yy-2)}
   if(mn<0&&mx>0){var y0=Y(0);ctx.strokeStyle=css("--muted");ctx.setLineDash([3,3]);ctx.beginPath();ctx.moveTo(pad,y0);ctx.lineTo(w-pad,y0);ctx.stroke();ctx.setLineDash([])}
-  for(var s=0;s<series.length;s++){var arr=b[series[s].k];ctx.strokeStyle=series[s].col;ctx.lineWidth=1.5;ctx.beginPath();var st=false;for(var i=0;i<n;i++){if(arr[i]==null){st=false;continue}var x=X(i),y=Y(arr[i]);if(!st){ctx.moveTo(x,y);st=true}else ctx.lineTo(x,y)}ctx.stroke();ctx.fillStyle=series[s].col;ctx.beginPath();ctx.arc(X(n-1),Y(arr[n-1]),3,0,7);ctx.fill()}
+  if(m=="zt"){ctx.setLineDash([4,3]);ctx.font="9px sans-serif";ctx.textAlign="right";var refs=[["牛市及格 80",80,css("--up")],["震荡及格 60",60,css("--warn")]];for(var r=0;r<refs.length;r++){var rv=refs[r][1];if(rv<mn||rv>mx)continue;var ry=Y(rv);ctx.strokeStyle=refs[r][2];ctx.beginPath();ctx.moveTo(pad,ry);ctx.lineTo(w-pad,ry);ctx.stroke();ctx.fillStyle=refs[r][2];ctx.fillText(refs[r][0],w-pad-2,ry-2)}ctx.setLineDash([]);ctx.textAlign="left"}
+  for(var s=0;s<series.length;s++){var arr=arrOf(s);ctx.strokeStyle=series[s].col;ctx.lineWidth=1.5;ctx.beginPath();var st=false;for(var i=0;i<n;i++){if(arr[i]==null){st=false;continue}var x=X(i),y=Y(arr[i]);if(!st){ctx.moveTo(x,y);st=true}else ctx.lineTo(x,y)}ctx.stroke();ctx.fillStyle=series[s].col;if(arr[n-1]!=null){ctx.beginPath();ctx.arc(X(n-1),Y(arr[n-1]),3,0,7);ctx.fill()}}
   ctx.fillStyle=css("--muted");ctx.font="9px sans-serif";ctx.textAlign="center";var lb=6;for(var k=0;k<lb;k++){var i=Math.round(n*k/(lb-1));if(i>=n)i=n-1;ctx.fillText(d[i].slice(5),X(i),h-4)}
   ctx.textAlign="left";ctx.font="10px sans-serif";var lx=pad;for(var s=0;s<series.length;s++){ctx.fillStyle=series[s].col;ctx.fillText("—"+series[s].lbl,lx,14);lx+=100}
-  var ne=$("brdNote");if(ne){var lv=b[series[0].k][n-1];ne.textContent=series[0].lbl+" 末值 "+(m=="thermo"?Math.round(lv):num(lv,0))}
-  CHART_STATE["cvBreadth"]={hit:function(x,y){var i=Math.round((x-pad)/(n==1?1:xs/(n-1)));if(i<0||i>=n)return null;var html=d[i];for(var s=0;s<series.length;s++){html+="<br>"+series[s].lbl+" "+(m=="thermo"?Math.round(b[series[s].k][i]):num(b[series[s].k][i],0))}html+="<br>涨跌比 "+num(b.ratio[i],2);return{html:html,clickable:false}}}
+  var ne=$("brdNote");if(ne&&series.length){var lv=arrOf(0)[n-1];var txt=(lv==null?"—":(m=="thermo"?Math.round(lv):(m=="nh"?num(lv,1)+"%":num(lv,0))));ne.textContent=series[0].lbl+" 末值 "+txt}
+  CHART_STATE["cvBreadth"]={hit:function(x,y){var i=Math.round((x-pad)/(n==1?1:xs/(n-1)));if(i<0||i>=n)return null;var html=d[i];for(var s=0;s<series.length;s++){var arr=arrOf(s);if(m=="nh"){var nhd=b.new_high[series[s].k];html+="<br>"+series[s].lbl+" "+(arr[i]!=null?num(arr[i],1)+"%":"—")+"（"+(nhd&&nhd.count&&nhd.count[i]!=null?nhd.count[i]+"家/"+nhd.size:"—")+"）"}else{html+="<br>"+series[s].lbl+" "+(arr[i]==null?"—":(m=="thermo"?Math.round(arr[i]):num(arr[i],0)))}}html+="<br>涨跌比 "+num(b.ratio[i],2);return{html:html,clickable:false}}}
 }
 function fmt2(v){return (v>=0?"+":"")+v.toFixed(2)+"%"}
 function dColor(v){if(v>=10)return"#ff4d4f";if(v>=5)return"#ff7a45";if(v>=1)return"#ff9a2e";if(v>=0)return"#ff9eb5";if(v>=-1)return"#b5ead0";if(v>=-5)return"#7fd9a3";if(v>=-10)return"#2eb872";return"#00b578"}

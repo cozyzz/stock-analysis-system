@@ -219,6 +219,55 @@ def _code_to_symbol(code):
     return "sz" + c
 
 
+def load_index_cons():
+    """读 data/idx_cons.pkl → {key: set(sh/sz/bj 前缀 symbol)}。只读缓存，不联网。
+    缺失返回 {}（宽度模块「创20日新高家数」降级为数据获取失败，不阻塞其他指标）。
+    成分股半年调一次，需更新时手动跑 fetch_index_cons() 重取。
+    """
+    import pickle
+    path = os.path.join(C.DATA_DIR, "idx_cons.pkl")
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, "rb") as f:
+            d = pickle.load(f)
+        return {k: set(v) for k, v in d.items()}
+    except Exception:
+        return {}
+
+
+def fetch_index_cons():
+    """一次性取 沪深300(000300) + 中证2000(932000) 成分股 → 写 data/idx_cons.pkl。
+    用 index_stock_cons_csindex（中证指数公司权威源）；东财 index_stock_cons 对中证2000
+    严重重复（2000行仅700唯一），故不用。成分股半年调一次，手动跑、不在每日 cron 调。
+    返回 {key: set(前缀 symbol)}。
+    """
+    import pickle
+    import akshare as ak
+    out = {}
+    for key, code in [("hs300", "000300"), ("zz2000", "932000")]:
+        try:
+            df = ak.index_stock_cons_csindex(symbol=code)
+            # 成分券代码列（中证源列名含"成分券代码"）
+            ccol = next((c for c in df.columns if "成分券代码" in str(c) or "券代码" in str(c)),
+                        df.columns[4])
+            codes = df[ccol].astype(str).str.zfill(6).tolist()
+            out[key] = {_code_to_symbol(c) for c in codes}
+            print("  · %s %s: %d 只" % (key, code, len(out[key])))
+        except Exception as e:
+            out[key] = set()
+            print("  · %s %s 取失败：%s: %s" % (key, code, type(e).__name__, str(e)[:120]))
+    path = os.path.join(C.DATA_DIR, "idx_cons.pkl")
+    try:
+        os.makedirs(C.DATA_DIR, exist_ok=True)
+        with open(path, "wb") as f:
+            pickle.dump({k: list(v) for k, v in out.items()}, f)
+        print("  · 成分股缓存写入 %s" % path)
+    except Exception as e:
+        print("  · 成分股缓存写入失败：%s" % e)
+    return out
+
+
 # 瞬时网络错误（新浪源并发/连续请求后会 SSL 重置/代理拒连）→ 退避重试；
 # 业务错误（如"股票数据不存在"）不在其列，直接抛。
 _TRANSIENT = ("SSLError", "ProxyError", "ChunkedEncodingError", "ConnectionError",

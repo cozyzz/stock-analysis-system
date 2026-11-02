@@ -58,6 +58,7 @@ INTRADAY_DISK_CACHE = True             # 分时磁盘缓存：data/intraday/{sym
 # 画折线。纯本地计算（复用 market._from_ohlcv 口径），不碰东财，服务器可跑。
 BREADTH_DAYS = 60                          # 折线天数（最近 N 个交易日）
 BREADTH_MA = 20                            # 多头占比口径的均线周期
+INDEX_NEW_HIGH_DAYS = 20                   # 创N日新高家数口径（沪深300/中证2000拆分）
 
 # ---------- 信号追踪/实盘复盘（嵌策略 tab） ----------
 # 取最近 N 个交易日的策略信号，用 ohlcv 查每个信号次日最高/收盘，按「脉冲5」出口算真实
