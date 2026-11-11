@@ -7,7 +7,7 @@ C 5%走一半剩收盘  : 成交则一半吃5%一半收盘，否则收盘卖
 净值模型同 engine._equity_curve：满仓均分当日信号、逐信号日复利、cost=0.003/轮。
 """
 import sys, os, time
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np
 import pandas as pd
 import config as C

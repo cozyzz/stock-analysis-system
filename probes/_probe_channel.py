@@ -13,7 +13,7 @@
      判 viability 主要看持仓期收益/胜率/假突破率。
 """
 import sys, os, time
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np
 import pandas as pd
 import config as C

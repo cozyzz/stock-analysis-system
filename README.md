@@ -92,6 +92,8 @@ py -3 run.py seed                # 从 breakout 拷历史（首次）
 
 **策略条件速查**：[策略清单.md](策略清单.md)——8 个策略的筛选条件、阈值、卖出口径、风格定位一览。
 
+**做T操作框架**：[做T操作框架.md](策略研究/做T操作框架.md)——分时量价+MACD 三共振的日内高抛低吸手法，定位为压仓底仓**持仓管理**（非选股策略），与 `strategies/` 的 T+1 选股策略维度互补、不纳入回测引擎。
+
 ---
 
 ## 目录结构
@@ -111,12 +113,8 @@ stock-analysis-system/
 ├── refs/                  # 参考截图
 ├── data/                  # 数据缓存（gitignore，需 fetch/seed 生成）
 ├── deploy/                # 服务器部署脚本（setup.sh/publish.sh/systemd/cron/runbook）
-├── requirements.txt       # Python 依赖（akshare/pandas/numpy）
-├── _probe_nds_high.py     # 探针：次日盘中分布 + 挂单成交模拟
-├── _probe_rla_l5.py       # 探针：反转低吸三口径12年净值
-├── _probe_rla_min.py      # 探针：次日早盘冲高时点（新浪5分钟源）
-├── _probe_0amv.py         # 探针：0AmV活筹公式核验（沪深成交额10日和 vs SMA平均）
-└── _probe_active_mktcap.py # 探针：活跃市值波段统计（模块已暂停，旧总市值版）
+├── probes/                # 探针/研究脚本（24 个 _*.py：策略回测验证/接口探测/诊断，原散落根目录已归档）
+└── requirements.txt       # Python 依赖（akshare/pandas/numpy）
 ```
 
 ---

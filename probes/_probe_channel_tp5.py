@@ -9,7 +9,7 @@ A 股 T+1：最早次日（i+1）可卖，循环从 i+1 起。
 问：+5% 成交的胜率多高？年化多少？兜底那批亏多少？
 """
 import sys, os, time
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np
 import pandas as pd
 import config as C

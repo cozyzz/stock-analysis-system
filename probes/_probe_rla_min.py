@@ -7,7 +7,7 @@
 东财分钟接口(push2his)在本环境被断连，改用新浪 stock_zh_a_minute。
 """
 import sys, os, time, random
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np
 import pandas as pd
 import datasource as ds

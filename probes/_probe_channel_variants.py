@@ -19,7 +19,7 @@
 问：让赢家跑 / ATR 自适应止损，能否压回撤 + 提收益（vs 基线 -3% 硬止损）？
 """
 import sys, os, time
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np
 import pandas as pd
 import config as C

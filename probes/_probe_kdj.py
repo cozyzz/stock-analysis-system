@@ -13,7 +13,7 @@
    缠论 73.4%/34.1%[T+1超短]；肯特纳-3%硬止损 124.5%/46.5%[多日持仓]）
 """
 import sys, os, time
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np
 import pandas as pd
 import config as C

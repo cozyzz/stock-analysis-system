@@ -18,7 +18,7 @@ MA10 = 活跃市值 10日均线（"平均活跃市值"，列出当前值与全�
   一致；总市值水平无解禁漂移，更干净。若用户要严格流通口径需另接数据源。
 """
 import sys, os, time
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np
 import pandas as pd
 import config as C

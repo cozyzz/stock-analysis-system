@@ -11,7 +11,7 @@ D 现状(open_next)  : ret = o[i+1]/c[i]-1（次日开盘卖）
 净值模型同 engine._equity_curve：满仓均分当日信号、逐信号日复利、cost=0.003/轮。
 """
 import sys, os, time
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np
 import pandas as pd
 import config as C

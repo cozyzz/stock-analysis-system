@@ -11,7 +11,7 @@
 未触发到末尾 = 右删失（不计）。问：硬止损后赔率翻正了吗？三个都正？回撤收窄多少？
 """
 import sys, os, time
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np
 import pandas as pd
 import config as C

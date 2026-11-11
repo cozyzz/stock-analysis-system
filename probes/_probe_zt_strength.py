@@ -10,7 +10,7 @@
 对照：反转低吸整体 B口径 年化112.6%/18.8%（盘中最高中位+3.79%）
 """
 import sys, os, time
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np
 import pandas as pd
 import config as C

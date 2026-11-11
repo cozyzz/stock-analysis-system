@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """逐个测 market 子调用，定位哪个触发 V8 段错误。"""
 import sys, os
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import akshare as ak
 from modules.market import _fetch_markets, _fetch_fund_sector, _fetch_hot
 

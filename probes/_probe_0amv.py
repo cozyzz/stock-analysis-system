@@ -16,7 +16,7 @@
 深证综指 399106 或全市场口径。
 """
 import sys, os
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import pandas as pd
 import akshare as ak
 
