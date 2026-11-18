@@ -106,7 +106,8 @@ STRATEGIES = {
     # "low_trend": "strategies.low_trend",
     # "next_day_short_pb": "strategies.next_day_short_pb",
     "chanlun_bottom_fx": "strategies.chanlun_bottom_fx",    # 缠论底分型（底分型+10日涨停+市值50亿）
-    "n_pattern_rebound": "strategies.n_pattern_rebound",  # N字反包（观察池：涨停次日T1放量<3倍+上下影信号|买点T+3缩量贴MA5低点买|反包冲高走人破失效价走）
+    "n_pattern_rebound": "strategies.n_pattern_rebound",  # N字反包·影线（A2：T0涨停+T1放量+影线+收盘超涨停价|买T+3缩量低点|止损T0最低-3%）
+    "n_pattern_rebound_strong": "strategies.n_pattern_rebound_strong",  # N字反包·强势（B：T0涨停+T1放量+收盘超涨停价(不带影线)|互斥影线版）
 }
 DEFAULT_STRATEGY = "reversal_low_absorb"
 
