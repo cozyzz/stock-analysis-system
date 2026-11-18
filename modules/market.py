@@ -202,10 +202,12 @@ def _from_ohlcv(ctx):
                 np.where(code3.isin(["300", "301", "688", "689"]), 0.20, 0.10))
     names = m["symbol"].map(ctx.name_map).fillna("").astype(str)
     st = names.str.upper().str.contains("ST")
-    m["zt"] = m["chg"] >= m["ratio"] * 100 - 0.15
-    m["dt"] = m["chg"] <= -m["ratio"] * 100 + 0.15
-    m.loc[st, "zt"] = m.loc[st, "chg"] >= 4.9
-    m.loc[st, "dt"] = m.loc[st, "chg"] <= -4.9
+    m["zt_price"] = (m["prev"] * (1 + m["ratio"])).round(2)
+    m["dt_price"] = (m["prev"] * (1 - m["ratio"])).round(2)
+    m.loc[st, "zt_price"] = (m.loc[st, "prev"] * 1.05).round(2)
+    m.loc[st, "dt_price"] = (m.loc[st, "prev"] * 0.95).round(2)
+    m["zt"] = m["close"] >= m["zt_price"] - 1e-9
+    m["dt"] = m["close"] <= m["dt_price"] + 1e-9
 
     thermo = {
         "total": int(len(m)),
@@ -218,7 +220,7 @@ def _from_ohlcv(ctx):
         "limit_ratio": round(int(m["zt"].sum()) / max(int(m["zt"].sum() + m["dt"].sum()), 1), 3),
     }
     distrib = _distribution(m["chg"])
-    m["open_zt"] = m["open"] >= m["prev"] * (1 + m["ratio"]) - 0.01
+    m["open_zt"] = m["open"] >= m["zt_price"]
     m["close_zt"] = m["zt"]
     open_zt = int(m["open_zt"].sum())
     close_zt = int(m["close_zt"].sum())
@@ -266,7 +268,7 @@ def _top_gainers_from_ohlcv(ctx, n=10):
 def _breadth_series(ctx, n_days):
     """最近 n_days 个交易日的市场宽度/温度折线（纯本地 ohlcv 重算，不碰东财）。
 
-    复用 _from_ohlcv 的涨跌/涨跌停口径（板别 ratio、ST 4.9 覆盖），逐日算：
+    复用 _from_ohlcv 的涨跌/涨跌停口径（精确涨停价/跌停价 round 到分、ST 5%），逐日算：
     涨/跌/平家数、涨停/跌停、涨跌比、MA20 多头占比、温度分（与 analysis._thermo_score 同公式）。
     全向量化（pivot 宽表 + 列向聚合），秒级。返回前端折线数据；不足返回 {}。
     """
@@ -297,14 +299,15 @@ def _breadth_series(ctx, n_days):
     prev = piv.shift(1, axis=1)
     chg = (piv / prev - 1) * 100
 
-    # 涨跌停：chg 减每只阈值（按板别）后比较；ST 覆盖 4.9%
-    zt = chg.sub(ratio_s * 100 - 0.15, axis=0) >= 0
-    dt = chg.sub(-ratio_s * 100 + 0.15, axis=0) <= 0
+    # 涨跌停：精确涨停价/跌停价（收盘价=涨停价才算；按板别四舍五入到分；ST 5%）
+    zt_price = prev.mul(1 + ratio_s, axis=0).round(2)
+    dt_price = prev.mul(1 - ratio_s, axis=0).round(2)
     if st.any():
-        zt.loc[st] = chg.loc[st] >= 4.9
-        dt.loc[st] = chg.loc[st] <= -4.9
-    # 开板/封板（情绪·封板率）：open >= 昨收*(1+ratio)-0.01
-    zt_price = prev.mul(1 + ratio_s, axis=0) - 0.01
+        zt_price.loc[st] = (prev.loc[st] * 1.05).round(2)
+        dt_price.loc[st] = (prev.loc[st] * 0.95).round(2)
+    zt = piv >= zt_price - 1e-9
+    dt = piv <= dt_price + 1e-9
+    # 开板/封板（情绪·封板率）：open >= 涨停价
     open_zt = opiv >= zt_price
     sealed = open_zt & zt
 
@@ -402,16 +405,20 @@ def _ratio_vec(codes):
 def _thermometer(spot):
     df = spot.copy()
     df["涨跌幅"] = pd.to_numeric(df["涨跌幅"], errors="coerce")
-    df = df.dropna(subset=["涨跌幅"])
+    df["最新价"] = pd.to_numeric(df["最新价"], errors="coerce")
+    df["昨收"] = pd.to_numeric(df["昨收"], errors="coerce")
+    df = df.dropna(subset=["最新价", "昨收"])
     if not len(df):
         return {}
     names = df["名称"].astype(str)
     st = names.str.upper().str.contains("ST")
     df["_ratio"] = _ratio_vec(df["代码"])
-    df["_zt"] = df["涨跌幅"] >= df["_ratio"] * 100 - 0.15
-    df["_dt"] = df["涨跌幅"] <= -df["_ratio"] * 100 + 0.15
-    df.loc[st, "_zt"] = df.loc[st, "涨跌幅"] >= 4.9
-    df.loc[st, "_dt"] = df.loc[st, "涨跌幅"] <= -4.9
+    df["_zt_price"] = (df["昨收"] * (1 + df["_ratio"])).round(2)
+    df["_dt_price"] = (df["昨收"] * (1 - df["_ratio"])).round(2)
+    df.loc[st, "_zt_price"] = (df.loc[st, "昨收"] * 1.05).round(2)
+    df.loc[st, "_dt_price"] = (df.loc[st, "昨收"] * 0.95).round(2)
+    df["_zt"] = df["最新价"] >= df["_zt_price"] - 1e-9
+    df["_dt"] = df["最新价"] <= df["_dt_price"] + 1e-9
     up = int((df["涨跌幅"] > 0).sum())
     dn = int((df["涨跌幅"] < 0).sum())
     fl = int((df["涨跌幅"] == 0).sum())
@@ -445,13 +452,17 @@ def _sentiment(spot):
     df = spot.copy()
     df["今开"] = pd.to_numeric(df["今开"], errors="coerce")
     df["昨收"] = pd.to_numeric(df["昨收"], errors="coerce")
-    df["涨跌幅"] = pd.to_numeric(df["涨跌幅"], errors="coerce")
-    df = df.dropna(subset=["今开", "昨收", "涨跌幅"])
+    df["最新价"] = pd.to_numeric(df["最新价"], errors="coerce")
+    df = df.dropna(subset=["今开", "昨收", "最新价"])
     if not len(df):
         return {}
+    names = df["名称"].astype(str)
+    st = names.str.upper().str.contains("ST")
     df["_ratio"] = _ratio_vec(df["代码"])
-    df["_open_zt"] = df["今开"] >= df["昨收"] * (1 + df["_ratio"]) - 0.01
-    df["_close_zt"] = df["涨跌幅"] >= df["_ratio"] * 100 - 0.15
+    df["_zt_price"] = (df["昨收"] * (1 + df["_ratio"])).round(2)
+    df.loc[st, "_zt_price"] = (df.loc[st, "昨收"] * 1.05).round(2)
+    df["_open_zt"] = df["今开"] >= df["_zt_price"]
+    df["_close_zt"] = df["最新价"] >= df["_zt_price"] - 1e-9
     open_zt = int(df["_open_zt"].sum())
     close_zt = int(df["_close_zt"].sum())
     broken = int((df["_open_zt"] & ~df["_close_zt"]).sum())
