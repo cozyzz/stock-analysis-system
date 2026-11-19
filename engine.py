@@ -103,7 +103,7 @@ def run(ohlcv_pool, strategy, name_map, shares_map=None, verbose=True):
             print(f"  [口径] SELL_BASIS=open_next：T+1 按「收盘买→次日开盘卖」算（o[i+1]/c[i]-1）")
 
     summary = _summarize(signals)
-    by_date = _by_date(signals)
+    by_date = _by_date(signals) if not getattr(strategy, "OBSERVATION_POOL", False) else []
     distribution = _distribution(signals)
     # 表格与 K 线图都只取最近 N 个，控制文件体积；统计用全量
     signals_sorted = sorted(signals, key=lambda r: r["date"], reverse=True)
@@ -117,7 +117,8 @@ def run(ohlcv_pool, strategy, name_map, shares_map=None, verbose=True):
         "summary": summary,
         "by_date": by_date,
         "distribution": distribution,
-        "equity": _equity_curve(by_date, C.HEADLINE_HORIZON, C.EQUITY_TX_COST),
+        "equity": _equity_curve(by_date, C.HEADLINE_HORIZON, C.EQUITY_TX_COST)
+                 if not getattr(strategy, "OBSERVATION_POOL", False) else {},
         "pending": sum(1 for r in signals if r.get("pending")),
         "pool_size": len(pool_syms),
         "n_scanned": n_scanned,

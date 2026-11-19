@@ -95,6 +95,7 @@ def build(ctx):
             "total_ret": eq.get("total_ret"),
             "max_dd": eq.get("max_dd"),
             "n_days": eq.get("n_days"),
+            "observation": getattr(st, "OBSERVATION_POOL", False),
         })
 
     if cutoff:

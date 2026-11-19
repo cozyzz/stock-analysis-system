@@ -33,6 +33,7 @@ import tdx
 NAME = "N字反包·影线"
 DESC = "涨停次日放量(<3倍)+上下影+收盘超涨停价=观察池|买T+3缩量低点|止损T0最低-3%反包走"
 AUTHOR = "用户"
+OBSERVATION_POOL = True     # 观察池：看板不计回测equity（T+1收盘复利口径不适用，实盘T+3缩量低点买+反包走人）
 PARAMS = {
     "vol_ratio_t1_low": 1.0,          # T1 放量下限（量/MA5）
     "vol_ratio_t1_high": 3.0,         # T1 放量上限
